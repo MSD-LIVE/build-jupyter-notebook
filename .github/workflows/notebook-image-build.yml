@@ -11,6 +11,8 @@ on:
         required: true
       AWS_REGION_FOR_ECR_MIRROR:
         required: true
+      AWS_ECR_REPOSITORY_FOR_ECR_MIRROR:
+        required: true
 
 jobs:
   deploy:
@@ -90,7 +92,7 @@ jobs:
           DEPLOYMENT_NAME=${REPO_NAME#jupyter-notebook-}
           REPO_OWNER=$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')
           GHCR_IMAGE="ghcr.io/${REPO_OWNER}/jupyter/${DEPLOYMENT_NAME}-notebook:$TAG"
-          ECR_IMAGE="${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY }}:${DEPLOYMENT_NAME}-${TAG}"
+          ECR_IMAGE="${{ steps.login-ecr.outputs.registry }}/${{ secrets.AWS_ECR_REPOSITORY_FOR_ECR_MIRROR }}:${DEPLOYMENT_NAME}-${TAG}"
 
           echo "Building image:"
           echo "  GHCR: $GHCR_IMAGE"
