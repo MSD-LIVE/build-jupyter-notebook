@@ -4,7 +4,13 @@ on:
       some_input:
         required: false
         type: string
-
+    secrets:
+      AWS_ACCESS_KEY_ID_FOR_ECR_MIRROR:
+        required: true
+      AWS_SECRET_ACCESS_KEY_FOR_ECR_MIRROR:
+        required: true
+      AWS_REGION_FOR_ECR_MIRROR:
+        required: true
 
 jobs:
   deploy:
@@ -16,6 +22,19 @@ jobs:
       # Step 1: Checkout the repository
       - name: Checkout repository
         uses: actions/checkout@v3
+
+      # Step 1.4: Configure AWS credentials (IAM user – temporary)
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID_ECR_MIRROR }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_ECR_MIRROR }}
+          aws-region: ${{ secrets.AWS_REGION_FOR_ECR_MIRROR }}
+      
+      # Step 1.6: Login to Amazon ECR
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
 
       # Step 2: Log in to GitHub Container Registry
       - name: Log in to GitHub Container Registry
@@ -70,6 +89,17 @@ jobs:
           REPO_NAME=$(basename $GITHUB_REPOSITORY)
           DEPLOYMENT_NAME=${REPO_NAME#jupyter-notebook-}
           REPO_OWNER=$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')
-          IMAGE_NAME="ghcr.io/${REPO_OWNER}/jupyter/${DEPLOYMENT_NAME}-notebook:$TAG"
-          docker build --pull -t $IMAGE_NAME .
-          docker push $IMAGE_NAME
+          GHCR_IMAGE="ghcr.io/${REPO_OWNER}/jupyter/${DEPLOYMENT_NAME}-notebook:$TAG"
+          ECR_IMAGE="${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY }}:${DEPLOYMENT_NAME}-${TAG}"
+
+          echo "Building image:"
+          echo "  GHCR: $GHCR_IMAGE"
+          echo "  ECR : $ECR_IMAGE"
+
+          docker build --pull \
+            -t $GHCR_IMAGE \
+            -t $ECR_IMAGE \
+            .
+
+          docker push $GHCR_IMAGE
+          docker push $ECR_IMAGE
