@@ -1,117 +1,116 @@
 on:
-  workflow_call:
-    inputs:
-      some_input:
-        required: false
-        type: string
-    secrets:
-      AWS_ACCESS_KEY_ID_FOR_ECR_MIRROR:
-        required: true
-      AWS_SECRET_ACCESS_KEY_FOR_ECR_MIRROR:
-        required: true
-      AWS_REGION_FOR_ECR_MIRROR:
-        required: true
-      AWS_ECR_REPOSITORY_FOR_ECR_MIRROR:
-        required: true
+    workflow_call:
+        inputs:
+            some_input:
+                required: false
+                type: string
+        secrets:
+            AWS_ACCESS_KEY_ID_FOR_ECR_MIRROR:
+                required: true
+            AWS_SECRET_ACCESS_KEY_FOR_ECR_MIRROR:
+                required: true
+            AWS_REGION_FOR_ECR_MIRROR:
+                required: true
+            AWS_ECR_REPOSITORY_FOR_ECR_MIRROR:
+                required: true
 
 jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    env:
-      DISPATCHED_EVENT_NAME: ${{ github.event.action || '' }}
+    deploy:
+        runs-on: ubuntu-latest
+        env:
+            DISPATCHED_EVENT_NAME: ${{ github.event.action || '' }}
 
-    steps:
-      # Step 1: Checkout the repository
-      - name: Checkout repository
-        uses: actions/checkout@v3
+        steps:
+            # Step 1: Checkout the repository
+            - name: Checkout repository
+              uses: actions/checkout@v3
 
-      - name: Debug secret presence (safe)
-        run: |
-          if [ -z "${{ secrets.AWS_ACCESS_KEY_ID_FOR_ECR_MIRROR }}" ]; then
-            echo "AWS_ACCESS_KEY_ID_FOR_ECR_MIRROR is EMPTY"
-            exit 1
-          else
-            echo "AWS_ACCESS_KEY_ID_FOR_ECR_MIRROR is present"
-          fi
+            - name: Debug secret presence (safe)
+              run: |
+                  if [ -z "${{ secrets.AWS_ACCESS_KEY_ID_FOR_ECR_MIRROR }}" ]; then
+                    echo "AWS_ACCESS_KEY_ID_FOR_ECR_MIRROR is EMPTY"
+                    exit 1
+                  else
+                    echo "AWS_ACCESS_KEY_ID_FOR_ECR_MIRROR is present"
+                  fi
 
+            # Step 1.4: Configure AWS credentials (IAM user – temporary)
+            - name: Configure AWS credentials
+              uses: aws-actions/configure-aws-credentials@v4
+              with:
+                  aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID_FOR_ECR_MIRROR }}
+                  aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_FOR_ECR_MIRROR }}
+                  aws-region: ${{ secrets.AWS_REGION_FOR_ECR_MIRROR }}
 
-      # Step 1.4: Configure AWS credentials (IAM user – temporary)
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID_FOR_ECR_MIRROR }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_FOR_ECR_MIRROR }}
-          aws-region: ${{ secrets.AWS_REGION_FOR_ECR_MIRROR }}
-      
-      # Step 1.6: Login to Amazon ECR
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
+            # Step 1.6: Login to Amazon ECR
+            - name: Login to Amazon ECR
+              id: login-ecr
+              uses: aws-actions/amazon-ecr-login@v2
 
-      # Step 2: Log in to GitHub Container Registry
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+            # Step 2: Log in to GitHub Container Registry
+            - name: Log in to GitHub Container Registry
+              uses: docker/login-action@v3
+              with:
+                  registry: ghcr.io
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Step 3: Build and push Docker image.  We get the github default variables for
-      # repository owner (MSD-LIVE) and repository name (e.g., jupyter-notebook-statemodify)
-      # Then we convert owner name to lowercase (because the docker push requires lowercase)
-      # and we parse off the jupter-notebook- from the repo name and convert the tag to
-      # jupyter/$DEPLOYMENT_NAME-notebook:latest (e.g., jupyter/statemodify-notebook:latest).
-      - name: Build and push Docker image
-        run: |
-          if [[ $GITHUB_EVENT_NAME == 'push' ]]; then
-            if [[ $GITHUB_REF == 'refs/heads/dev' ]]; then
-              echo "PUSH event, building dev image"
-              TAG="dev"
-            elif [[ $GITHUB_REF == 'refs/heads/main' ]]; then
-              echo "PUSH event, building latest image"
-              TAG="latest"
-            else
-              echo "This action only runs on dev or main branches."
-              exit 1
-            fi
-          elif [[ $GITHUB_EVENT_NAME == 'repository_dispatch' ]]; then
-            echo "repository_dispatch event: $DISPATCHED_EVENT_NAME"
-            if [[ $DISPATCHED_EVENT_NAME == 'trigger-build-dev' ]]; then
-              echo "REPOSITORY_DISPATCH event, building dev image"
-              # Check if 'dev' branch exists; if it does, check it out.
-              if git ls-remote --exit-code --heads origin dev; then
-                echo "dev branch found, checking it out"
-                git fetch origin dev
-                git checkout dev
-              else
-                echo "dev branch not found, building from default branch"
-              fi
-              TAG="dev"
-            elif [[ $DISPATCHED_EVENT_NAME == 'trigger-build-latest' ]]; then
-              echo "REPOSITORY_DISPATCH event, building latest image"
-              TAG="latest"
-            else
-              echo "Unsupported repository_dispatch event: $DISPATCHED_EVENT_NAME"
-              exit 1
-            fi
-          else
-            echo "Unsupported event: $GITHUB_EVENT_NAME"
-            exit 1
-          fi
-          REPO_NAME=$(basename $GITHUB_REPOSITORY)
-          DEPLOYMENT_NAME=${REPO_NAME#jupyter-notebook-}
-          REPO_OWNER=$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')
-          GHCR_IMAGE="ghcr.io/${REPO_OWNER}/jupyter/${DEPLOYMENT_NAME}-notebook:$TAG"
-          ECR_IMAGE="${{ steps.login-ecr.outputs.registry }}/${{ secrets.AWS_ECR_REPOSITORY_FOR_ECR_MIRROR }}:${DEPLOYMENT_NAME}-${TAG}"
+            # Step 3: Build and push Docker image.  We get the github default variables for
+            # repository owner (MSD-LIVE) and repository name (e.g., jupyter-notebook-statemodify)
+            # Then we convert owner name to lowercase (because the docker push requires lowercase)
+            # and we parse off the jupter-notebook- from the repo name and convert the tag to
+            # jupyter/$DEPLOYMENT_NAME-notebook:latest (e.g., jupyter/statemodify-notebook:latest).
+            - name: Build and push Docker image
+              run: |
+                  if [[ $GITHUB_EVENT_NAME == 'push' ]]; then
+                    if [[ $GITHUB_REF == 'refs/heads/dev' ]]; then
+                      echo "PUSH event, building dev image"
+                      TAG="dev"
+                    elif [[ $GITHUB_REF == 'refs/heads/main' ]]; then
+                      echo "PUSH event, building latest image"
+                      TAG="latest"
+                    else
+                      echo "This action only runs on dev or main branches."
+                      exit 1
+                    fi
+                  elif [[ $GITHUB_EVENT_NAME == 'repository_dispatch' ]]; then
+                    echo "repository_dispatch event: $DISPATCHED_EVENT_NAME"
+                    if [[ $DISPATCHED_EVENT_NAME == 'trigger-build-dev' ]]; then
+                      echo "REPOSITORY_DISPATCH event, building dev image"
+                      # Check if 'dev' branch exists; if it does, check it out.
+                      if git ls-remote --exit-code --heads origin dev; then
+                        echo "dev branch found, checking it out"
+                        git fetch origin dev
+                        git checkout dev
+                      else
+                        echo "dev branch not found, building from default branch"
+                      fi
+                      TAG="dev"
+                    elif [[ $DISPATCHED_EVENT_NAME == 'trigger-build-latest' ]]; then
+                      echo "REPOSITORY_DISPATCH event, building latest image"
+                      TAG="latest"
+                    else
+                      echo "Unsupported repository_dispatch event: $DISPATCHED_EVENT_NAME"
+                      exit 1
+                    fi
+                  else
+                    echo "Unsupported event: $GITHUB_EVENT_NAME"
+                    exit 1
+                  fi
+                  REPO_NAME=$(basename $GITHUB_REPOSITORY)
+                  DEPLOYMENT_NAME=${REPO_NAME#jupyter-notebook-}
+                  REPO_OWNER=$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')
+                  GHCR_IMAGE="ghcr.io/${REPO_OWNER}/jupyter/${DEPLOYMENT_NAME}-notebook:$TAG"
+                  ECR_IMAGE="${{ steps.login-ecr.outputs.registry }}/msdlive:${DEPLOYMENT_NAME}-${TAG}"
 
-          echo "Building image:"
-          echo "  GHCR: $GHCR_IMAGE"
-          echo "  ECR : $ECR_IMAGE"
+                  echo "Building image:"
+                  echo "  GHCR: $GHCR_IMAGE"
+                  echo "  ECR : $ECR_IMAGE"
 
-          docker build --pull \
-            -t $GHCR_IMAGE \
-            -t $ECR_IMAGE \
-            .
+                  docker build --pull \
+                    -t $GHCR_IMAGE \
+                    -t $ECR_IMAGE \
+                    .
 
-          docker push $GHCR_IMAGE
-          docker push $ECR_IMAGE
+                  docker push $GHCR_IMAGE
+                  docker push $ECR_IMAGE
